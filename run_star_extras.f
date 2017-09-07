@@ -44,7 +44,17 @@
       subroutine extras_controls(id, ierr)
          integer, intent(in) :: id
          integer, intent(out) :: ierr
+         type (star_info), pointer :: s
+
          ierr = 0
+         call star_ptr(id, s, ierr)
+         if (ierr /= 0) return
+
+         s% how_many_extra_history_columns => how_many_extra_history_columns
+         s% data_for_extra_history_columns => data_for_extra_history_columns
+
+         s% how_many_extra_profile_columns => how_many_extra_profile_columns
+         s% data_for_extra_profile_columns => data_for_extra_profile_columns
       end subroutine extras_controls
       
       
@@ -79,7 +89,7 @@
 
       integer function how_many_extra_history_columns(id, id_extra)
          integer, intent(in) :: id, id_extra
-         how_many_extra_history_columns = 1
+         how_many_extra_history_columns = 2
       end function how_many_extra_history_columns
       
       
@@ -87,21 +97,69 @@
          integer, intent(in) :: id, id_extra, n
          character (len=maxlen_history_column_name) :: names(n)
          real(dp) :: vals(n)
+         type (star_info), pointer :: s
          integer, intent(out) :: ierr
          real(dp) :: dt
+         integer :: k, nz
+         real(dp) :: turnover_time, dr, tot_r, envelope_edge
+         real(dp) :: vel_ratio, tau_lim
+
          ierr = 0
-         if (n /= 1) then
-            stop 'bad n for data_for_extra_history_columns'
-         end if
-         dt = dble(time1 - time0) / clock_rate / 60
-         names(1) = 'runtime_minutes'
-         vals(1) = dt
+         call star_ptr(id, s, ierr)
+         if (ierr /= 0) return
+         
+         ! if (n /= 1) then
+         !    stop 'bad n for data_for_extra_history_columns'
+         ! end if
+
+         nz = s% nz
+         vel_ratio = s% x_ctrl(3)
+         tau_lim = s% x_ctrl(4)
+
+         tot_r = 0.0
+         turnover_time = 0.0
+         envelope_edge = 0.0
+         envelope_edge = max(s% conv_mx1_bot_r, s% conv_mx2_bot_r)
+
+         ! write(*,*), "envelope_edge = ", envelope_edge
+
+         do k = nz, 1, -1
+            if (s% mixing_type(k) == convective_mixing) then
+               if ( s% r(k) .gt. envelope_edge) then
+                  if (k < s% nz) then
+                     dr = s% r(k) - s% r(k + 1)
+                  else
+                     dr = s% r(k) - s% R_center
+                  end if
+                  ! write(*,*), "r, k", s% r(k) , k
+                  ! s% conv_vel in cm/s
+                  ! dr in cm
+                  if (s% conv_vel(k) .gt. vel_ratio * s% csound(k) .and. s% tau(k) .gt. tau_lim) then
+                     turnover_time = turnover_time + (dr/ s% conv_vel(k))
+                     tot_r = tot_r + dr
+                  end if
+               end if
+            end if
+         end do
+         ! write(*,*), "turnover time = ",  turnover_time
+
+         names(1) = "turnover_time"
+         vals(1) = turnover_time
+
+         names(2) = "total_r"
+         vals(2) = tot_r
+
       end subroutine data_for_extra_history_columns
 
       
       integer function how_many_extra_profile_columns(id, id_extra)
          integer, intent(in) :: id, id_extra
-         how_many_extra_profile_columns = 0
+         integer :: ierr
+         type (star_info), pointer :: s
+         ierr = 0
+         call star_ptr(id, s, ierr)
+         if (ierr /= 0) return
+         how_many_extra_profile_columns = 2
       end function how_many_extra_profile_columns
       
       
@@ -110,8 +168,25 @@
          character (len=maxlen_profile_column_name) :: names(n)
          real(dp) :: vals(nz,n)
          integer, intent(out) :: ierr
+         type (star_info), pointer :: s
          integer :: k
          ierr = 0
+         call star_ptr(id, s, ierr)
+         if (ierr /= 0) return
+
+         names(1) = "dr"
+         names(2) = "turnover_time"
+
+         do k = 1, s% nz  
+            if (k < s% nz) then
+               vals(k, 1) = (s% r(k) - s% r(k + 1))
+               vals(k, 2) = (s% r(k) - s% r(k + 1)) / s% conv_vel(k)
+            else
+               vals(k, 1) = (s% r(k) - s% R_center)
+               vals(k, 2) = (s% r(k) - s% R_center) / s% conv_vel(k)
+            end if
+         end do
+
       end subroutine data_for_extra_profile_columns
       
 
