@@ -101,12 +101,13 @@
          integer, intent(out) :: ierr
          real(dp) :: dt
          integer :: k, nz
-         real(dp) :: turnover_time, envelope_edge
+         real(dp) :: turnover_time
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
-         real(dp) :: vel_ratio, upper_lim, lower_lim, tau_lim
-
+         real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
+         real(dp) :: eps_nuc_lim, eps_nuc
+         logical :: conv_env_found
          ierr = 0
          call star_ptr(id, s, ierr)
          if (ierr /= 0) return
@@ -116,35 +117,55 @@
          ! end if
 
          nz = s% nz
-         vel_ratio = s% x_ctrl(1)      ! originally x_ctrl(3)
-         tau_lim = s% x_ctrl(2)        ! originally x_ctrl(4)
+         vel_ratio = s% x_ctrl(1) ! originally x_ctrl(3)
+         tau_lim = s% x_ctrl(2) ! originally x_ctrl(4)
          wind_factor = s% x_ctrl(3)
          tt_factor = s% x_ctrl(4)
          rot_factor = s% x_ctrl(5)
          saturation_factor = s% x_ctrl(6)
 
+         conv_env_found = .false.
+
          tot_r = 0.0
          turnover_time = 0.0
-         envelope_edge = 0.0
-         envelope_edge = max(s% conv_mx1_bot_r, s% conv_mx2_bot_r)
+         eps_nuc_lim = 1.0d-1
 
          do k = nz, 1, -1
-            if (s% mixing_type(k) == convective_mixing) then
-               if ( s% r(k) .gt. envelope_edge) then
-                  if (k < s% nz) then
-                     dr = (s% r(k) - s% r(k + 1))
-                  else
-                     dr = (s% r(k) - s% R_center)
-                  end if
+            eps_nuc = s% eps_nuc(k)
+
+            if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
+               conv_env_found = .true.
+            end if
+
+            if (conv_env_found) then
+               if (k < s% nz) then
+                  dr = (s% r(k) - s% r(k + 1))
+               else
+                  dr = (s% r(k) - s% R_center)
+               end if
+               
+               if (s% mixing_type(k) == convective_mixing) then
+                  vel = s% conv_vel(k)
                   lower_lim = vel_ratio * s% csound(k)
                   upper_lim = 1.0 * s% csound(k)
-                  if ((s% conv_vel(k) .gt. lower_lim) .and. (s% conv_vel(k) .lt. upper_lim) .and. (s% tau(k) .gt. tau_lim)) then
-                     turnover_time = turnover_time + (dr/ s% conv_vel(k))
-                     tot_r = tot_r + dr
+                  if (vel .lt. lower_lim) then
+                     vel = lower_lim
+                  else if (vel .gt. upper_lim) then
+                     vel = upper_lim
                   end if
+               else
+                  vel = s% csound(k)
+               end if
+
+               if (s% tau(k) .gt. tau_lim) then
+                  turnover_time = turnover_time + (dr / vel)
+                  tot_r = tot_r + dr
                end if
             end if
+
          end do
+            
+         conv_env_found = .false.
 
          names(1) = "turnover_time"
          vals(1) = turnover_time

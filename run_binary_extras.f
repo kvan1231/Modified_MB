@@ -144,7 +144,6 @@
          type (binary_info), pointer :: b
          type (star_info), pointer :: s
          real(dp) :: turnover_time
-         real(dp) :: envelope_edge
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
@@ -310,7 +309,6 @@
          integer, intent(out) :: ierr
          integer :: k, nz
          real(dp) :: turnover_time
-         real(dp) :: envelope_edge
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
