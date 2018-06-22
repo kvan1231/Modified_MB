@@ -143,13 +143,15 @@
          integer :: k, nz
          type (binary_info), pointer :: b
          type (star_info), pointer :: s
-         real(dp) :: turnover_time
+         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
          real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
          real(dp) :: rsun4, two_pi_div_p3, rad4
          real(dp) :: eps_nuc_lim, eps_nuc
+         real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
+         common/ old_var/ mag_old, tt_old
          logical :: conv_env_found
          ierr = 0
          call binary_ptr(binary_id, b, ierr)
@@ -177,7 +179,11 @@
 
          tot_r = 0.0
          turnover_time = 0.0
+         tt_temp = 0.0
          eps_nuc_lim = 1.0d-2
+
+         mag_temp = 0.0
+         ! mag_old = 0.0
 
          do k = nz, 1, -1
             eps_nuc = s% eps_nuc(k)
@@ -195,7 +201,7 @@
 
             if (conv_env_found) then
                
-               if (k < s% nz) then
+               if (k .lt. s% nz) then
                   dr = (s% r(k) - s% r(k + 1))
                else
                   dr = (s% r(k) - s% R_center)
@@ -215,12 +221,47 @@
                end if
 
                if (s% tau(k) .gt. tau_lim) then
-                  turnover_time = turnover_time + (dr / vel)
+                  tt_temp = tt_temp + (dr / vel)
+                  ! turnover_time = turnover_time + (dr / vel)
                   tot_r = tot_r + dr
                end if
             end if
 
          end do
+
+         write (*,*) "model_num = ", s% model_number
+         write (*,*) "turnover_time = ", tt_temp
+         if (s% model_number == 1) then
+            turnover_time = tt_temp
+            mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
+         else
+            mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
+            mag_diff = abs(mag_old - mag_temp)
+            ! write (*,*) "mag_old = ", mag_old
+            ! write (*,*) "mag_temp = ", mag_temp
+            ! write (*,*) "mag_diff = ", mag_diff
+            delta_mag_chk = s% dt / tt_temp
+            ! write (*,*) "delta_mag = ", delta_mag_chk
+            if ((mag_diff > delta_mag_chk) .and. (s% dt < tt_old)) then
+               write (*,*) "small timestep, adjusting"
+               tt_diff = tt_temp - tt_old 
+               write (*,*) "tt_diff = ", tt_diff
+               turnover_time = tt_old + tt_diff * (s% dt / tt_old)
+               write (*,*) "tt_temp = ", tt_temp
+               write (*,*) "turnover_time = ", turnover_time
+               ! if (tt_temp .lt. tt_old) then
+               !    turnover_time = tt_temp - tt_diff * (s% dt / tt_old)
+               ! else if (tt_temp .gt. tt_old) then
+               !    turnover_time = tt_temp + tt_diff * (s% dt / tt_old)
+               ! end if
+            else 
+               turnover_time = tt_temp
+            end if
+            mag_field = mag_temp
+         end if
+
+         mag_old = mag_field
+         tt_old = turnover_time
 
          b% jdot_mb = 0
          rsun4 = pow4(rsun)
@@ -308,12 +349,14 @@
          real(dp) :: vals(n)
          integer, intent(out) :: ierr
          integer :: k, nz
-         real(dp) :: turnover_time
+         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff
          real(dp) :: dr, tot_r, mb, jdot_mb
-         real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
-         real(dp) :: wind_boost, tt_boost, rotation_scaling
          real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
          real(dp) :: eps_nuc_lim, eps_nuc
+         real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
+         real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
+         real(dp) :: wind_boost, tt_boost, rotation_scaling
+         common/ old_var/ mag_old, tt_old
          logical :: conv_env_found
          ierr = 0
          call binary_ptr(binary_id, b, ierr)
@@ -335,7 +378,10 @@
 
          tot_r = 0.0
          turnover_time = 0.0
-         eps_nuc_lim = 1.0d-1
+         tt_temp = 0.0
+         eps_nuc_lim = 1.0d-2
+
+         mag_temp = 0.0
 
          do k = nz, 1, -1
             eps_nuc = s% eps_nuc(k)
@@ -345,7 +391,7 @@
             end if
 
             if (conv_env_found) then
-               if (k < s% nz) then
+               if (k .lt. s% nz) then
                   dr = (s% r(k) - s% r(k + 1))
                else
                   dr = (s% r(k) - s% R_center)
@@ -365,20 +411,42 @@
                end if
 
                if (s% tau(k) .gt. tau_lim) then
-                  turnover_time = turnover_time + (dr / vel)
+                  tt_temp = tt_temp + (dr / vel)
                   tot_r = tot_r + dr
                end if
             end if
 
          end do
-            
-         conv_env_found = .false.
+
+         if (s% model_number == 1) then
+            turnover_time = tt_temp
+            mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
+         else
+            mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
+            mag_diff = abs(mag_old - mag_temp)
+            delta_mag_chk = s% dt / tt_temp
+            if ((mag_diff > delta_mag_chk) .and. (s% dt < tt_old)) then
+               tt_diff = tt_temp - tt_old 
+               turnover_time = tt_old + tt_diff * (s% dt / tt_old)
+               ! if (tt_temp .lt. tt_old) then
+               !    turnover_time = tt_temp - tt_diff * (s% dt / tt_old)
+               ! else if (tt_temp .gt. tt_old) then
+               !    turnover_time = tt_temp + tt_diff * (s% dt / tt_old)
+               ! end if
+            else 
+               turnover_time = tt_temp
+            end if
+            mag_field = mag_temp
+         end if
+
+         mag_old = mag_field
+         tt_old = turnover_time
 
          names(1) = "turnover_time"
          vals(1) = turnover_time
 
-         names(2) = "total_r"
-         vals(2) = tot_r
+         names(2) = "mag_field"
+         vals(2) = mag_field
 
       end subroutine data_for_extra_binary_history_columns
       
