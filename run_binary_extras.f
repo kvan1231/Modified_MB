@@ -143,15 +143,16 @@
          integer :: k, nz
          type (binary_info), pointer :: b
          type (star_info), pointer :: s
-         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff
+         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff, tt_mesa
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
          real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
+         real(dp) :: vel_diff
          real(dp) :: rsun4, two_pi_div_p3, rad4
          real(dp) :: eps_nuc_lim, eps_nuc
          real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
-         common/ old_var/ mag_old, tt_old
+         common/ old_var/ mag_old, tt_old, tt_mesa
          logical :: conv_env_found
          ierr = 0
          call binary_ptr(binary_id, b, ierr)
@@ -181,13 +182,15 @@
          turnover_time = 0.0
          tt_temp = 0.0
          eps_nuc_lim = 1.0d-2
+         vel_diff = 0.0
 
          mag_temp = 0.0
          ! mag_old = 0.0
 
          do k = nz, 1, -1
-            eps_nuc = s% eps_nuc(k)
 
+            eps_nuc = s% eps_nuc(k)
+            ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
             if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
                conv_env_found = .true.
             end if
@@ -200,7 +203,7 @@
             ! end if
 
             if (conv_env_found) then
-               
+
                if (k .lt. s% nz) then
                   dr = (s% r(k) - s% r(k + 1))
                else
@@ -231,6 +234,7 @@
 
          write (*,*) "model_num = ", s% model_number
          write (*,*) "turnover_time = ", tt_temp
+
          if (s% model_number == 1) then
             turnover_time = tt_temp
             mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
@@ -244,24 +248,32 @@
             ! write (*,*) "delta_mag = ", delta_mag_chk
             if ((mag_diff > delta_mag_chk) .and. (s% dt < tt_old)) then
                write (*,*) "small timestep, adjusting"
-               tt_diff = tt_temp - tt_old 
-               write (*,*) "tt_diff = ", tt_diff
-               turnover_time = tt_old + tt_diff * (s% dt / tt_old)
                write (*,*) "tt_temp = ", tt_temp
-               write (*,*) "turnover_time = ", turnover_time
+               tt_diff = tt_temp - tt_mesa
+               write (*,*) "tt_diff = ", tt_diff
                ! if (tt_temp .lt. tt_old) then
-               !    turnover_time = tt_temp - tt_diff * (s% dt / tt_old)
+               !    turnover_time = tt_old - tt_diff * (s% dt / tt_old)
                ! else if (tt_temp .gt. tt_old) then
-               !    turnover_time = tt_temp + tt_diff * (s% dt / tt_old)
+               !    turnover_time = tt_old + tt_diff * (s% dt / tt_old)
                ! end if
+               turnover_time = tt_old + tt_diff * (s% dt / tt_old)
+               write (*,*) "turnover_time = ", turnover_time
+               write (*,*) "adjusting convective velocity"
+
+               do k = nz, 1, -1
+                  vel_diff = s% conv_vel_old(k) - s% conv_vel(k)
+                  s% conv_vel(k) = s% conv_vel_old(k) + vel_diff * (s% dt / tt_old)
+               end do
+
             else 
                turnover_time = tt_temp
             end if
             mag_field = mag_temp
          end if
 
-         mag_old = mag_field
+         tt_mesa = tt_temp
          tt_old = turnover_time
+         mag_old = mag_field
 
          b% jdot_mb = 0
          rsun4 = pow4(rsun)
@@ -349,14 +361,15 @@
          real(dp) :: vals(n)
          integer, intent(out) :: ierr
          integer :: k, nz
-         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff
+         real(dp) :: turnover_time, tt_temp, tt_old, tt_diff, tt_mesa
          real(dp) :: dr, tot_r, mb, jdot_mb
          real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
+         real(dp) :: vel_diff
          real(dp) :: eps_nuc_lim, eps_nuc
          real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
          real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
          real(dp) :: wind_boost, tt_boost, rotation_scaling
-         common/ old_var/ mag_old, tt_old
+         common/ old_var/ mag_old, tt_old, tt_mesa
          logical :: conv_env_found
          ierr = 0
          call binary_ptr(binary_id, b, ierr)
@@ -417,7 +430,7 @@
             end if
 
          end do
-
+         
          if (s% model_number == 1) then
             turnover_time = tt_temp
             mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
@@ -426,21 +439,27 @@
             mag_diff = abs(mag_old - mag_temp)
             delta_mag_chk = s% dt / tt_temp
             if ((mag_diff > delta_mag_chk) .and. (s% dt < tt_old)) then
-               tt_diff = tt_temp - tt_old 
-               turnover_time = tt_old + tt_diff * (s% dt / tt_old)
+               tt_diff = tt_temp - tt_mesa 
                ! if (tt_temp .lt. tt_old) then
-               !    turnover_time = tt_temp - tt_diff * (s% dt / tt_old)
+               !    turnover_time = tt_old - tt_diff * (s% dt / tt_old)
                ! else if (tt_temp .gt. tt_old) then
-               !    turnover_time = tt_temp + tt_diff * (s% dt / tt_old)
+               !    turnover_time = tt_old + tt_diff * (s% dt / tt_old)
                ! end if
+               turnover_time = tt_temp + tt_diff * (s% dt / tt_old)
+
+               do k = nz, 1, -1
+                  vel_diff = s% conv_vel_old(k) - s% conv_vel(k)
+                  s% conv_vel(k) = s% conv_vel_old(k) + vel_diff * (s% dt / tt_old)
+               end do
             else 
                turnover_time = tt_temp
             end if
             mag_field = mag_temp
          end if
 
-         mag_old = mag_field
+         tt_mesa = tt_temp
          tt_old = turnover_time
+         mag_old = mag_field
 
          names(1) = "turnover_time"
          vals(1) = turnover_time
