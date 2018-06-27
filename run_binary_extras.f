@@ -262,7 +262,7 @@
                     ! write (*,*) "turnover_time = ", turnover_time
 
                     do k = nz, 1, -1
-                        vel_diff = (s% conv_vel(k) - s% conv_vel_old(k)) * min((s% dt / tt_old), 1.0)
+                        vel_diff = (s% conv_vel(k) - s% conv_vel_old(k)) * min((s% dt / tt_old), 1.0d-3)
                         s% conv_vel(k) = s% conv_vel_old(k) + vel_diff
 
                         eps_nuc = s% eps_nuc(k)
