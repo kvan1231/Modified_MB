@@ -187,7 +187,6 @@
             vel_diff = 0.0
 
             mag_temp = 0.0
-            ! mag_old = 0.0
 
             do k = nz, 1, -1
 
@@ -243,13 +242,17 @@
                 mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
             else
                 mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
-                mag_diff = abs(mag_old - mag_temp)
+                ! mag_diff = abs(mag_old - mag_temp)
+                tt_diff = abs(tt_old - tt_temp)
+                delta_mag_chk = s% dt / tt_temp
                 ! write (*,*) "mag_old = ", mag_old
                 ! write (*,*) "mag_temp = ", mag_temp
                 ! write (*,*) "mag_diff = ", mag_diff
-                delta_mag_chk = s% dt / tt_temp
-                ! write (*,*) "delta_mag = ", delta_mag_chk
-                if (s% dt < tt_old) then
+                write (*,*) "tt_diff = ", tt_diff
+                write (*,*) "delta_mag = ", delta_mag_chk
+                write (*,*) "tt_old = ", tt_old
+                write (*,*) "dt = ", s% dt
+                if ((s% dt .lt. tt_old) .or. (tt_diff .gt. delta_mag_chk)) then
                     write (*,*) "small timestep, adjusting convective velocity"
                     ! write (*,*) "tt_temp = ", tt_temp
                     ! tt_diff = tt_temp - tt_mesa
@@ -259,8 +262,8 @@
                     ! write (*,*) "turnover_time = ", turnover_time
 
                     do k = nz, 1, -1
-                        vel_diff = s% conv_vel(k) - s% conv_vel_old(k)
-                        s% conv_vel(k) = s% conv_vel_old(k) + vel_diff * (s% dt / tt_old)
+                        vel_diff = (s% conv_vel(k) - s% conv_vel_old(k)) * min((s% dt / tt_old), 1.0)
+                        s% conv_vel(k) = s% conv_vel_old(k) + vel_diff
 
                         eps_nuc = s% eps_nuc(k)
                         ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
@@ -394,13 +397,11 @@
             integer, intent(out) :: ierr
             integer :: k, nz
             real(dp) :: turnover_time, tt_temp, tt_temp2, tt_old, tt_diff, tt_mesa
-            real(dp) :: dr, tot_r, mb, jdot_mb
+            real(dp) :: dr, tot_r
             real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
             real(dp) :: vel_diff
             real(dp) :: eps_nuc_lim, eps_nuc
             real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
-            real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
-            real(dp) :: wind_boost, tt_boost, rotation_scaling
             common/ old_var/ mag_old, tt_old, tt_mesa
             logical :: conv_env_found
             ierr = 0
@@ -414,10 +415,6 @@
             nz = s% nz
             vel_ratio = s% x_ctrl(1)            ! originally x_ctrl(3)
             tau_lim = s% x_ctrl(2)              ! originally x_ctrl(4)
-            wind_factor = s% x_ctrl(3)
-            tt_factor = s% x_ctrl(4)
-            rot_factor = s% x_ctrl(5)
-            saturation_factor = s% x_ctrl(6)
 
             conv_env_found = .false.
 
@@ -468,92 +465,20 @@
 
                     if (s% tau(k) .gt. tau_lim) then
                         tt_temp = tt_temp + (dr / vel)
-                        turnover_time = turnover_time + (dr / vel)
                     end if
                 end if
 
             end do
-            conv_env_found = .false.
 
-            ! write (*,*) "model_num = ", s% model_number
-            ! write (*,*) "turnover_time = ", tt_temp
-
-            if (s% model_number == 1) then
-                turnover_time = tt_temp
-                mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
-            else
-                mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
-                mag_diff = abs(mag_old - mag_temp)
-                ! write (*,*) "mag_old = ", mag_old
-                ! write (*,*) "mag_temp = ", mag_temp
-                ! write (*,*) "mag_diff = ", mag_diff
-                delta_mag_chk = s% dt / tt_temp
-                ! write (*,*) "delta_mag = ", delta_mag_chk
-                if (s% dt < tt_old) then
-                    write (*,*) "small timestep, adjusting"
-                    ! write (*,*) "tt_temp = ", tt_temp
-                    ! tt_diff = tt_temp - tt_mesa
-                    ! write (*,*) "tt_diff = ", tt_diff
-
-                    ! turnover_time = tt_old + tt_diff * (s% dt / tt_old)
-                    ! write (*,*) "turnover_time = ", turnover_time
-                    write (*,*) "adjusting convective velocity"
-
-                    do k = nz, 1, -1
-                        vel_diff = s% conv_vel(k) - s% conv_vel_old(k) 
-                        s% conv_vel(k) = s% conv_vel_old(k) + vel_diff * (s% dt / tt_old)
-
-                        eps_nuc = s% eps_nuc(k)
-                        ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
-                        if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
-                            conv_env_found = .true.
-                        end if
-
-                        if (conv_env_found) then
-
-                            if (k .lt. s% nz) then
-                                dr = (s% r(k) - s% r(k + 1))
-                            else
-                                dr = (s% r(k) - s% R_center)
-                            end if
-                            
-                            if (s% mixing_type(k) == convective_mixing) then
-                                vel = s% conv_vel(k)
-                                lower_lim = vel_ratio * s% csound(k)
-                                upper_lim = 1.0 * s% csound(k)
-                                if (vel .lt. lower_lim) then
-                                    vel = lower_lim
-                                else if (vel .gt. upper_lim) then
-                                    vel = upper_lim
-                                end if
-                            else
-                                vel = s% csound(k)
-                            end if
-
-                            if (s% tau(k) .gt. tau_lim) then
-                                tt_temp2 = tt_temp2 + (dr / vel)
-                                ! turnover_time = turnover_time + (dr / vel)
-                            end if
-                        end if
-                    end do
-                    turnover_time = tt_temp2    
-                    mag_field = (tt_temp2 / 2.8d6) * (2073600. / b% period)
-                else 
-                    turnover_time = tt_temp
-                end if
-                mag_field = mag_temp
-            end if
-
-            ! tt_mesa = tt_temp
-            tt_old = turnover_time
-            mag_old = mag_field
+            turnover_time = tt_temp
+            mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
 
             names(1) = "turnover_time"
             vals(1) = turnover_time
 
             names(2) = "mag_field"
             vals(2) = mag_field
- 
+
         end subroutine data_for_extra_binary_history_columns
         
         
