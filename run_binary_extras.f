@@ -256,14 +256,14 @@
                 tt_diff = abs(tt_old - tt_temp) / tt_old
                 delta_mag_chk = s% dt / tt_old
 
-                write (*,*) "tt_diff = ", tt_diff
-                write (*,*) "delta_mag = ", delta_mag_chk
-                write (*,*) "turnover_time = ", turnover_time
-                write (*,*) "tt_old = ", tt_old
+                ! write (*,*) "tt_diff = ", tt_diff
+                ! write (*,*) "delta_mag = ", delta_mag_chk
+                ! write (*,*) "turnover_time = ", turnover_time
+                ! write (*,*) "tt_old = ", tt_old
 
                 ! check if timesteps are very small or if the relative change is very large
                 if (tt_diff .gt. delta_mag_chk) then 
-                    write (*,*) "large change, adjusting accordingly"
+                    ! write (*,*) "large change, adjusting accordingly"
                     turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
  
                 end if ! end of timestep/relative change check
@@ -467,14 +467,14 @@
                 tt_diff = abs(tt_old - tt_temp) / tt_old
                 delta_mag_chk = s% dt / tt_old
 
-                write (*,*) "tt_diff = ", tt_diff
-                write (*,*) "delta_mag = ", delta_mag_chk
-                write (*,*) "turnover_time = ", turnover_time
-                write (*,*) "tt_old = ", tt_old
+                ! write (*,*) "tt_diff = ", tt_diff
+                ! write (*,*) "delta_mag = ", delta_mag_chk
+                ! write (*,*) "turnover_time = ", turnover_time
+                ! write (*,*) "tt_old = ", tt_old
 
                 ! check if timesteps are very small or if the relative change is very large
                 if (tt_diff .gt. delta_mag_chk) then 
-                    write (*,*) "large change, adjusting accordingly"
+                    ! write (*,*) "large change, adjusting accordingly"
                     turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
  
                 end if ! end of timestep/relative change check
@@ -488,7 +488,7 @@
             tt_old = turnover_time
             mag_old = mag_field
 
-            write (*,*) "outputting values"
+            ! write (*,*) "outputting values"
 
             names(1) = "turnover_time"
             vals(1) = turnover_time
