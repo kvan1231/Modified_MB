@@ -213,7 +213,7 @@
                     end if
                     
                     ! determine the convective velocity inside each given cell
-                    if (s% gradr(k) .gt. s% grada(k)) then
+                    if (s% mixing_type(k) == convective_mixing) then
 
                         ! need to ensure that the convective velocity is within
                         ! our defined limits, if they are outside of these limits
@@ -461,6 +461,9 @@
             ! simply set the turnover time to the internal variable calculated above
             turnover_time = tt_temp
 
+            ! calculate the magnetic field using B/B_sun = tau/tau_sun * P_sun/P
+            mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
+
             if (s% model_number .gt. 1) then
                 ! calculate the variables used to check if our system is rapidly evolving
                 mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
@@ -475,14 +478,13 @@
                 ! check if timesteps are very small or if the relative change is very large
                 if (tt_diff .gt. delta_mag_chk) then 
                     ! write (*,*) "large change, adjusting accordingly"
+
                     turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
+                    mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
  
                 end if ! end of timestep/relative change check
             
             end if
-
-            ! calculate the magnetic field using B/B_sun = tau/tau_sun * P_sun/P
-            mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
 
             ! remember the current values to be used as comparison in the next step
             tt_old = turnover_time
