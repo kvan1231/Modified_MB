@@ -143,16 +143,15 @@
             integer :: k, nz
             type (binary_info), pointer :: b
             type (star_info), pointer :: s
-            real(dp) :: turnover_time, tt_temp, tt_temp2, tt_old, tt_diff, tt_mesa
-            real(dp) :: dr, tot_r, mb, jdot_mb
+            real(dp) :: turnover_time, tt_temp, tt_temp_scaled, tt_old, tt_diff
+            real(dp) :: vel, vel_ratio, vel_diff, upper_lim, lower_lim, scaled_vel
+            real(dp) :: eps_nuc_lim, eps_nuc
+            real(dp) :: dr, tau_lim, delta_mag_chk
+            real(dp) :: mb, jdot_mb
             real(dp) :: wind_factor, tt_factor, rot_factor, saturation_factor
             real(dp) :: wind_boost, tt_boost, rotation_scaling
-            real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
-            real(dp) :: vel_diff
             real(dp) :: rsun4, two_pi_div_p3, rad4
-            real(dp) :: eps_nuc_lim, eps_nuc
-            real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
-            common/ old_var/ mag_old, tt_old, tt_mesa
+            common/ old_var/ tt_old
             logical :: conv_env_found
             ierr = 0
             call binary_ptr(binary_id, b, ierr)
@@ -167,6 +166,8 @@
             ! write (*,*) "====================================================="
             ! write (*,*) " "
 
+        ! INITIALIZE THE VARIABLES
+
             s => b% s_donor
             nz = s% nz
             vel_ratio = s% x_ctrl(1)            ! originally x_ctrl(3)
@@ -178,137 +179,101 @@
 
             conv_env_found = .false.
 
-            tot_r = 0.0
             turnover_time = 0.0
             tt_temp = 0.0
-            tt_temp2 = 0.0
+            tt_temp_scaled = 0.0
 
             eps_nuc_lim = 1.0d-2
             vel_diff = 0.0
+            scaled_vel = 0.0
 
-            mag_temp = 0.0
+        ! INITIAL TURNOVER TIME CALCULATION
 
-            do k = nz, 1, -1
+            do k = nz, 1, -1 ! beginning of do loop to calculate convective turnover time
 
                 eps_nuc = s% eps_nuc(k)
-                ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
+                ! check if the cell we are looping through satisfies our convection criteria
                 if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
+                    ! toggle the boolean to begin integration
                     conv_env_found = .true.
                 end if
-                ! write(*,*) "k = ", k
 
-                ! if (conv_env_found) then
-                !     write(*,*) "conv ", s% eps_nuc(k)
-                ! else
-                !     write(*,*) "not_conv ", s% eps_nuc(k)
-                ! end if
-
+                ! only enter this portion if the convective boolean is true
+                ! this loop will go from the innermost cell that is convective to 
+                ! the surface. This is to try and smooth through any numeric issues
+                ! with convective zones appearing and disappearing in MESA.
                 if (conv_env_found) then
 
+                    ! loop to calculate the size of the cell, the innermost cell
+                    ! needs special consideration as it is above the core
                     if (k .lt. s% nz) then
                         dr = (s% r(k) - s% r(k + 1))
                     else
                         dr = (s% r(k) - s% R_center)
                     end if
                     
-                    if (s% mixing_type(k) == convective_mixing) then
+                    ! determine the convective velocity inside each given cell
+                    if (s% gradr(k) .gt. s% grada(k)) then
+
+                        ! need to ensure that the convective velocity is within
+                        ! our defined limits, if they are outside of these limits
+                        ! set them to be the max/min value allowed.
                         vel = s% conv_vel(k)
                         lower_lim = vel_ratio * s% csound(k)
                         upper_lim = 1.0 * s% csound(k)
+
                         if (vel .lt. lower_lim) then
                             vel = lower_lim
                         else if (vel .gt. upper_lim) then
                             vel = upper_lim
                         end if
+                    
+                    ! if the cell isnt defined by MESA to be convective take the
+                    ! convective velocity to be equal to sound speed
                     else
                         vel = s% csound(k)
                     end if
 
+                    ! Final check involving the opacity of the given cell. If the 
+                    ! cell isn't near the surface (low tau) then include it in our integration
                     if (s% tau(k) .gt. tau_lim) then
                         tt_temp = tt_temp + (dr / vel)
-                        ! turnover_time = turnover_time + (dr / vel)
-                        tot_r = tot_r + dr
                     end if
                 end if
 
-            end do
+            end do ! end of do loop to calculate convective turnover time
+
+            ! reset the boolean just in case
             conv_env_found = .false.
 
-            ! write (*,*) "model_num = ", s% model_number
-            ! write (*,*) "turnover_time = ", tt_temp
+        ! TURNOVER TIME CHECK, THIS IS TO TRY AND AVOID LARGE CHANGES
 
-            if (s% model_number == 1) then
-                turnover_time = tt_temp
-                mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
-            else
-                mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
-                ! mag_diff = abs(mag_old - mag_temp)
-                tt_diff = abs(tt_old - tt_temp)
-                delta_mag_chk = s% dt / tt_temp
-                ! write (*,*) "mag_old = ", mag_old
-                ! write (*,*) "mag_temp = ", mag_temp
-                ! write (*,*) "mag_diff = ", mag_diff
+            ! simply set the turnover time to the internal variable calculated above
+            turnover_time = tt_temp
+
+            if (s% model_number .gt. 1) then
+                ! calculate the variables used to check if our system is rapidly evolving
+                tt_diff = abs(tt_old - tt_temp) / tt_old
+                delta_mag_chk = s% dt / tt_old
+
                 write (*,*) "tt_diff = ", tt_diff
                 write (*,*) "delta_mag = ", delta_mag_chk
+                write (*,*) "turnover_time = ", turnover_time
                 write (*,*) "tt_old = ", tt_old
-                write (*,*) "dt = ", s% dt
-                if ((s% dt .lt. tt_old) .or. (tt_diff .gt. delta_mag_chk)) then
-                    write (*,*) "small timestep, adjusting convective velocity"
-                    ! write (*,*) "tt_temp = ", tt_temp
-                    ! tt_diff = tt_temp - tt_mesa
-                    ! write (*,*) "tt_diff = ", tt_diff
 
-                    ! turnover_time = tt_old + tt_diff * (s% dt / tt_old)
-                    ! write (*,*) "turnover_time = ", turnover_time
-
-                    do k = nz, 1, -1
-                        vel_diff = (s% conv_vel(k) - s% conv_vel_old(k)) * min((s% dt / tt_old), 1.0d-3)
-                        s% conv_vel(k) = s% conv_vel_old(k) + vel_diff
-
-                        eps_nuc = s% eps_nuc(k)
-                        ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
-                        if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
-                            conv_env_found = .true.
-                        end if
-
-                        if (conv_env_found) then
-
-                            if (k .lt. s% nz) then
-                                dr = (s% r(k) - s% r(k + 1))
-                            else
-                                dr = (s% r(k) - s% R_center)
-                            end if
-                            
-                            if (s% mixing_type(k) == convective_mixing) then
-                                vel = s% conv_vel(k)
-                                lower_lim = vel_ratio * s% csound(k)
-                                upper_lim = 1.0 * s% csound(k)
-                                if (vel .lt. lower_lim) then
-                                    vel = lower_lim
-                                else if (vel .gt. upper_lim) then
-                                    vel = upper_lim
-                                end if
-                            else
-                                vel = s% csound(k)
-                            end if
-
-                            if (s% tau(k) .gt. tau_lim) then
-                                tt_temp2 = tt_temp2 + (dr / vel)
-                                ! turnover_time = turnover_time + (dr / vel)
-                            end if
-                        end if
-                    end do
-                    turnover_time = tt_temp2    
-                    mag_field = (tt_temp2 / 2.8d6) * (2073600. / b% period)
-                else 
-                    turnover_time = tt_temp
-                end if
-                mag_field = mag_temp
+                ! check if timesteps are very small or if the relative change is very large
+                if (tt_diff .gt. delta_mag_chk) then 
+                    write (*,*) "large change, adjusting accordingly"
+                    turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
+ 
+                end if ! end of timestep/relative change check
             end if
 
-            ! tt_mesa = tt_temp
+            ! remember the current values to be used as comparison in the next step
+
             tt_old = turnover_time
-            mag_old = mag_field
+
+        ! MAGNETIC BRAKING CALCULATION
 
             b% jdot_mb = 0
             rsun4 = pow4(rsun)
@@ -383,7 +348,7 @@
         integer function how_many_extra_binary_history_columns(binary_id)
             use binary_def, only: binary_info
             integer, intent(in) :: binary_id
-            how_many_extra_binary_history_columns = 2
+            how_many_extra_binary_history_columns = 5
         end function how_many_extra_binary_history_columns
         
         subroutine data_for_extra_binary_history_columns(binary_id, n, names, vals, ierr)
@@ -396,14 +361,13 @@
             real(dp) :: vals(n)
             integer, intent(out) :: ierr
             integer :: k, nz
-            real(dp) :: turnover_time, tt_temp, tt_temp2, tt_old, tt_diff, tt_mesa
-            real(dp) :: dr, tot_r
-            real(dp) :: vel, vel_ratio, upper_lim, lower_lim, tau_lim
-            real(dp) :: vel_diff
+            real(dp) :: turnover_time, tt_temp, tt_temp_scaled, tt_old, tt_diff
+            real(dp) :: vel, vel_ratio, vel_diff, upper_lim, lower_lim, scaled_vel
+            real(dp) :: dr, conv_env_r, conv_env_m, sonic_cross_time, tau_lim
             real(dp) :: eps_nuc_lim, eps_nuc
             real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
-            common/ old_var/ mag_old, tt_old, tt_mesa
             logical :: conv_env_found
+            common/ old_var/ mag_old, tt_old
             ierr = 0
             call binary_ptr(binary_id, b, ierr)
             if (ierr .ne. 0) then
@@ -418,66 +382,128 @@
 
             conv_env_found = .false.
 
-            tot_r = 0.0
             turnover_time = 0.0
             tt_temp = 0.0
-            tt_temp2 = 0.0
-            
+            tt_temp_scaled = 0.0
+
             eps_nuc_lim = 1.0d-2
+            vel_diff = 0.0
+            scaled_vel = 0.0
 
             mag_temp = 0.0
 
-            do k = nz, 1, -1
+        ! INITIAL TURNOVER TIME CALCULATION
+
+            do k = nz, 1, -1 ! beginning of do loop to calculate convective turnover time
 
                 eps_nuc = s% eps_nuc(k)
-                ! write(*,*) "conv_vel_old = ", s% conv_vel_old(k)
+                ! check if the cell we are looping through satisfies our convection criteria
                 if ((s% gradr(k) .gt. s% grada(k)) .and. (eps_nuc .lt. eps_nuc_lim)) then
+                    ! toggle the boolean to begin integration
                     conv_env_found = .true.
                 end if
-                ! write(*,*) "k = ", k
 
-                ! if (conv_env_found) then
-                !     write(*,*) "conv ", s% eps_nuc(k)
-                ! else
-                !     write(*,*) "not_conv ", s% eps_nuc(k)
-                ! end if
-
+                ! only enter this portion if the convective boolean is true
+                ! this loop will go from the innermost cell that is convective to 
+                ! the surface. This is to try and smooth through any numeric issues
+                ! with convective zones appearing and disappearing in MESA.
                 if (conv_env_found) then
 
+                    ! loop to calculate the size of the cell, the innermost cell
+                    ! needs special consideration as it is above the core
                     if (k .lt. s% nz) then
                         dr = (s% r(k) - s% r(k + 1))
                     else
                         dr = (s% r(k) - s% R_center)
                     end if
                     
-                    if (s% mixing_type(k) == convective_mixing) then
+                    ! determine the convective velocity inside each given cell
+                    ! cells that 
+                    if (s% gradr(k) .gt. s% grada(k)) then
+
+                        ! need to ensure that the convective velocity is within
+                        ! our defined limits, if they are outside of these limits
+                        ! set them to be the max/min value allowed.
                         vel = s% conv_vel(k)
                         lower_lim = vel_ratio * s% csound(k)
                         upper_lim = 1.0 * s% csound(k)
+
                         if (vel .lt. lower_lim) then
                             vel = lower_lim
                         else if (vel .gt. upper_lim) then
                             vel = upper_lim
                         end if
+                    
+                    ! if the cell isnt defined by MESA to be convective take the
+                    ! convective velocity to be equal to sound speed
                     else
                         vel = s% csound(k)
                     end if
 
+                    ! Final check involving the opacity of the given cell. If the 
+                    ! cell isn't near the surface (low tau) then include it in our integration
                     if (s% tau(k) .gt. tau_lim) then
                         tt_temp = tt_temp + (dr / vel)
+                        sonic_cross_time = sonic_cross_time + (dr / s% csound(k))
+                        conv_env_r = conv_env_r + dr
+                        conv_env_m = conv_env_m + s% dm(k)
                     end if
                 end if
 
-            end do
+            end do ! end of do loop to calculate convective turnover time
 
+            ! reset the boolean just in case
+            conv_env_found = .false.
+
+
+        ! TURNOVER TIME CHECK, THIS IS TO TRY AND AVOID LARGE CHANGES
+
+            ! simply set the turnover time to the internal variable calculated above
             turnover_time = tt_temp
+
+            if (s% model_number .gt. 1) then
+                ! calculate the variables used to check if our system is rapidly evolving
+                mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
+                tt_diff = abs(tt_old - tt_temp) / tt_old
+                delta_mag_chk = s% dt / tt_old
+
+                write (*,*) "tt_diff = ", tt_diff
+                write (*,*) "delta_mag = ", delta_mag_chk
+                write (*,*) "turnover_time = ", turnover_time
+                write (*,*) "tt_old = ", tt_old
+
+                ! check if timesteps are very small or if the relative change is very large
+                if (tt_diff .gt. delta_mag_chk) then 
+                    write (*,*) "large change, adjusting accordingly"
+                    turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
+ 
+                end if ! end of timestep/relative change check
+            
+            end if
+
+            ! calculate the magnetic field using B/B_sun = tau/tau_sun * P_sun/P
             mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
+
+            ! remember the current values to be used as comparison in the next step
+            tt_old = turnover_time
+            mag_old = mag_field
+
+            write (*,*) "outputting values"
 
             names(1) = "turnover_time"
             vals(1) = turnover_time
 
             names(2) = "mag_field"
             vals(2) = mag_field
+
+            names(3) = "conv_env_r"
+            vals(3) = conv_env_r
+
+            names(4) = "conv_env_m"
+            vals(4) = conv_env_m
+
+            names(5) = "sonic_cross_time"
+            vals(5) = sonic_cross_time
 
         end subroutine data_for_extra_binary_history_columns
         
