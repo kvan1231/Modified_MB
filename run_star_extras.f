@@ -128,6 +128,10 @@
 			vel_diff = 0.0
 			scaled_vel = 0.0
 
+            conv_env_r = 0.0
+            conv_env_m = 0.0
+            sonic_cross_time = 0.0
+
 		  ! INITIAL TURNOVER TIME CALCULATION
 
 				do k = nz, 1, -1 ! beginning of do loop to calculate convective turnover time
@@ -231,7 +235,7 @@
 				vals(3) = conv_env_m
 
 				names(4) = "sonic_cross_time"
-				vals(5) = sonic_cross_time
+				vals(4) = sonic_cross_time
 
 		end subroutine data_for_extra_history_columns
 
