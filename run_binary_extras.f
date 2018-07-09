@@ -365,9 +365,9 @@
             real(dp) :: vel, vel_ratio, vel_diff, upper_lim, lower_lim, scaled_vel
             real(dp) :: dr, conv_env_r, conv_env_m, sonic_cross_time, tau_lim
             real(dp) :: eps_nuc_lim, eps_nuc
-            real(dp) :: mag_field, mag_temp, mag_old, mag_diff, delta_mag_chk
+            real(dp) :: mag_field, mag_diff, delta_mag_chk
             logical :: conv_env_found
-            common/ old_var/ mag_old, tt_old
+            common/ old_var/ tt_old
             ierr = 0
             call binary_ptr(binary_id, b, ierr)
             if (ierr .ne. 0) then
@@ -389,12 +389,6 @@
             eps_nuc_lim = 1.0d-2
             vel_diff = 0.0
             scaled_vel = 0.0
-
-            conv_env_r = 0.0
-            conv_env_m = 0.0
-            sonic_cross_time = 0.0
-
-            mag_temp = 0.0
 
         ! INITIAL TURNOVER TIME CALCULATION
 
@@ -423,7 +417,7 @@
                     
                     ! determine the convective velocity inside each given cell
                     ! cells that 
-                    if (s% gradr(k) .gt. s% grada(k)) then
+                    if (s% mixing_type(k) == convective_mixing) then
 
                         ! need to ensure that the convective velocity is within
                         ! our defined limits, if they are outside of these limits
@@ -470,19 +464,17 @@
 
             if (s% model_number .gt. 1) then
                 ! calculate the variables used to check if our system is rapidly evolving
-                mag_temp = (tt_temp / 2.8d6) * (2073600. / b% period)
                 tt_diff = abs(tt_old - tt_temp) / tt_old
                 delta_mag_chk = s% dt / tt_old
 
-                write (*,*) "tt_diff = ", tt_diff
-                write (*,*) "delta_mag = ", delta_mag_chk
-                write (*,*) "turnover_time = ", turnover_time
-                write (*,*) "tt_old = ", tt_old
+                ! write (*,*) "tt_diff = ", tt_diff
+                ! write (*,*) "delta_mag = ", delta_mag_chk
+                ! write (*,*) "turnover_time = ", turnover_time
+                ! write (*,*) "tt_old = ", tt_old
 
                 ! check if timesteps are very small or if the relative change is very large
                 if (tt_diff .gt. delta_mag_chk) then 
-                    write (*,*) "large change, adjusting accordingly"
-
+                    ! write (*,*) "large change, adjusting accordingly"
                     turnover_time = tt_old + (tt_temp - tt_old) * min((s% dt / tt_old), 0.5)
                     mag_field = (turnover_time / 2.8d6) * (2073600. / b% period)
  
@@ -492,9 +484,8 @@
 
             ! remember the current values to be used as comparison in the next step
             tt_old = turnover_time
-            mag_old = mag_field
 
-            write (*,*) "outputting values"
+            ! write (*,*) "outputting values"
 
             names(1) = "turnover_time"
             vals(1) = turnover_time
